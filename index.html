@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Text → OpenSCAD polygon(points,paths)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .col { border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
+    label { display:block; font-size: 12px; color:#444; margin-top: 8px; }
+    input[type="text"], textarea, input[type="number"], select { width: 100%; box-sizing: border-box; padding: 8px; border-radius: 8px; border:1px solid #ccc; }
+    textarea { height: 80%; min-height: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 12px; }
+    button { padding: 10px 12px; border: 0; border-radius: 10px; cursor: pointer; }
+    button.primary { background: #111; color: #fff; }
+    .hint { font-size: 12px; color:#555; line-height: 1.4; }
+    .controls { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .small { font-size: 12px; color:#666; }
+    canvas { width: 100%; aspect-ratio: 900/520; x-height: 260px; border:1px solid #eee; border-radius: 10px; background:#fafafa; }
+  </style>
+</head>
+<body>
+  <h2>漢字文字列 → OpenSCAD polygon(points, paths)</h2>
+  <p class="hint">
+    1) TTF/OTFフォントを選ぶ(例:NotoSansJP-Regular.otf / ヒラギノなどを抽出したTTF)<br>
+    2) 文字列とパラメータを入れて「生成」→ OpenSCADに貼る。<br>
+    ※ 曲線は近似点に分割します(精度は「曲線分割」で調整)。
+  </p>
+
+  <div class="row">
+    <div class="col">
+      <h3>入力</h3>
+
+      <label>文字列(漢字OK)</label>
+      <input id="text" type="text" value="漢字文字列" />
+
+      <label>フォント</label>
+      <select id="selfont"></select>
+      <label>フォントファイル(.ttf / .otf)</label>
+      <input id="fontFile" type="file" accept=".ttf,.otf" />
+
+
+      <div class="controls">
+        <div>
+          <label>フォントサイズ (OpenSCAD単位 mm)</label>
+          <input id="fontSize" type="number" value="20" min="1" step="1" />
+        </div>
+        <div>
+          <label>行ベースライン (Yオフセット)</label>
+          <input id="baseline" type="number" value="0" step="1" />
+        </div>
+      </div>
+
+      <div class="controls">
+        <div>
+          <label>字間 (追加 spacing)</label>
+          <input id="letterSpacing" type="number" value="0" step="0.5" />
+        </div>
+        <div>
+          <label>曲線分割 (小さいほど高精度)</label>
+          <input id="flatness" type="number" value="0.5" step="0.1" min="0.1" />
+          <div class="small">目安: 0.5=高精度 / 1=標準 / 2.0=軽い</div>
+        </div>
+        <div>
+          <label>パス合成 (by <a href=https://github.com/code4fukui/clipper-es/>clipper-es</a>)</label>
+          <input id="chkunion" type="checkbox" checked />
+        </div>
+        <div>
+          <label>linear_extrude (mm)</label>
+          <input id="in_linear_extrude" type="number" value="3" step="0.1" min="0.1" />
+        </div>
+      </div>
+
+      <div style="display:flex; gap:10px; margin-top: 12px;">
+        <button class="primary" id="gen">生成</button>
+        <button id="copy">出力をコピー</button>
+      </div>
+
+      <label>プレビュー</label>
+      <canvas id="preview" width="900" height="520"></canvas>
+    </div>
+
+    <div class="col">
+      <h3>出力(OpenSCAD)</h3>
+      <textarea id="out" spellcheck="false"></textarea>
+      <div class="hint">
+        使い方例:<br>
+        <code>linear_extrude(3) { gentext(); }</code><br>
+      </div>
+    </div>
+  </div>
+
+
+<script type="module">
+import * as opentype from "https://code4fukui.github.io/opentype-es/opentype.js";
+import ClipperLib from "https://code4fukui.github.io/clipper-es/clipper.js";
+
+const fonts = [
+  "Noto_Sans_JP/static/NotoSansJP-Black.ttf",
+  "Noto_Sans_JP/static/NotoSansJP-ExtraBold.ttf",
+  "Noto_Sans_JP/static/NotoSansJP-Bold.ttf",
+  "Noto_Sans_JP/static/NotoSansJP-SemiBold.ttf",
+  "Noto_Sans_JP/static/NotoSansJP-Medium.ttf",
+  "Noto_Sans_JP/static/NotoSansJP-Regular.ttf",
+  "Noto_Sans_JP/static/NotoSansJP-Light.ttf",
+  "Noto_Sans_JP/static/NotoSansJP-ExtraLight.ttf",
+  "Noto_Sans_JP/static/NotoSansJP-Thin.ttf",
+];
+
+for (const font of fonts) {
+  const opt = document.createElement("option");
+  opt.textContent = font;
+  selfont.appendChild(opt);
+}
+const opt = document.createElement("option");
+opt.textContent = "ファイル選択";
+opt.value = "select_file";
+selfont.appendChild(opt);
+
+// with clipper-es
+
+function unionContours(contours) {
+  const subj = contours.map(c =>
+    c.pts.map(p => ({ X: p.x*1000, Y: p.y*1000 }))
+  );
+
+  const cpr = new ClipperLib.Clipper();
+  cpr.AddPaths(subj, ClipperLib.PolyType.ptSubject, true);
+
+  const solution = new ClipperLib.Paths();
+  cpr.Execute(
+    ClipperLib.ClipType.ctUnion,
+    solution,
+    ClipperLib.PolyFillType.pftNonZero,
+    ClipperLib.PolyFillType.pftNonZero
+  );
+
+  return solution.map(path => ({
+    pts: path.map(p => ({ x: p.X/1000, y: p.Y/1000 })),
+    area: 1
+  }));
+}
+
+// ---------- Geometry helpers ----------
+function distPointLine(p, a, b) {
+  const vx = b.x - a.x, vy = b.y - a.y;
+  const wx = p.x - a.x, wy = p.y - a.y;
+  const c1 = vx*wx + vy*wy;
+  if (c1 <= 0) return Math.hypot(p.x-a.x, p.y-a.y);
+  const c2 = vx*vx + vy*vy;
+  if (c2 <= c1) return Math.hypot(p.x-b.x, p.y-b.y);
+  const t = c1 / c2;
+  const px = a.x + t*vx, py = a.y + t*vy;
+  return Math.hypot(p.x-px, p.y-py);
+}
+
+// Adaptive subdivision for quadratic Bezier
+function flattenQuad(p0, p1, p2, flatness, out) {
+  // distance of control point to chord
+  const d = distPointLine(p1, p0, p2);
+  if (d <= flatness) {
+    out.push({x:p2.x, y:p2.y});
+    return;
+  }
+  // subdivide
+  const p01 = {x:(p0.x+p1.x)/2, y:(p0.y+p1.y)/2};
+  const p12 = {x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2};
+  const p012 = {x:(p01.x+p12.x)/2, y:(p01.y+p12.y)/2};
+  flattenQuad(p0, p01, p012, flatness, out);
+  flattenQuad(p012, p12, p2, flatness, out);
+}
+
+// Adaptive subdivision for cubic Bezier
+function flattenCubic(p0, p1, p2, p3, flatness, out) {
+  const d1 = distPointLine(p1, p0, p3);
+  const d2 = distPointLine(p2, p0, p3);
+  if (Math.max(d1, d2) <= flatness) {
+    out.push({x:p3.x, y:p3.y});
+    return;
+  }
+  // subdivide de Casteljau
+  const p01 = {x:(p0.x+p1.x)/2, y:(p0.y+p1.y)/2};
+  const p12 = {x:(p1.x+p2.x)/2, y:(p1.y+p2.y)/2};
+  const p23 = {x:(p2.x+p3.x)/2, y:(p2.y+p3.y)/2};
+  const p012 = {x:(p01.x+p12.x)/2, y:(p01.y+p12.y)/2};
+  const p123 = {x:(p12.x+p23.x)/2, y:(p12.y+p23.y)/2};
+  const p0123 = {x:(p012.x+p123.x)/2, y:(p012.y+p123.y)/2};
+  flattenCubic(p0, p01, p012, p0123, flatness, out);
+  flattenCubic(p0123, p123, p23, p3, flatness, out);
+}
+
+function polygonArea(points) {
+  let a = 0;
+  for (let i=0;i<points.length;i++){
+    const p = points[i], q = points[(i+1)%points.length];
+    a += p.x*q.y - q.x*p.y;
+  }
+  return a/2;
+}
+
+function pointInPolygon(pt, poly) {
+  // ray casting
+  let inside = false;
+  for (let i=0, j=poly.length-1; i<poly.length; j=i++) {
+    const a = poly[i], b = poly[j];
+    const intersect = ((a.y>pt.y)!==(b.y>pt.y)) &&
+      (pt.x < (b.x-a.x)*(pt.y-a.y)/(b.y-a.y) + a.x);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Group contours into "outers with holes" using containment
+/*
+function groupContours(contours) {
+  // Determine containment relationships
+  const parents = new Array(contours.length).fill(-1);
+  for (let i=0;i<contours.length;i++){
+    const testPt = contours[i].pts[0];
+    let bestParent = -1;
+    let bestArea = Infinity;
+    for (let j=0;j<contours.length;j++){
+      if (i===j) continue;
+      // if i is inside j
+      if (pointInPolygon(testPt, contours[j].pts)) {
+        const a = Math.abs(contours[j].area);
+        if (a < bestArea) { bestArea = a; bestParent = j; }
+      }
+    }
+    parents[i] = bestParent;
+  }
+
+  // outers = contours with no parent
+  const outers = [];
+  for (let i=0;i<contours.length;i++){
+    if (parents[i] === -1) outers.push(i);
+  }
+
+  // Assign holes recursively by odd-even depth
+  const depth = new Array(contours.length).fill(0);
+  for (let i=0;i<contours.length;i++){
+    let d = 0, p = parents[i];
+    while (p !== -1) { d++; p = parents[p]; }
+    depth[i] = d;
+  }
+
+  // For each outer, collect direct children with odd depth relative to outer
+  const groups = outers.map(idx => ({ outer: idx, holes: [] }));
+  for (let i=0;i<contours.length;i++){
+    if (parents[i] === -1) continue;
+    // find topmost outer ancestor
+    let top = i;
+    while (parents[top] !== -1) top = parents[top];
+    const g = groups.find(x => x.outer === top);
+    if (!g) continue;
+    // If contour depth is odd, it's a hole in even-odd fill rule sense
+    // But could be "island" (even depth) inside a hole; those become separate solids.
+    if (depth[i] % 2 === 1) g.holes.push(i);
+    else {
+      // island: treat as its own outer group
+      groups.push({ outer: i, holes: [] });
+    }
+  }
+  return groups;
+}
+*/
+function groupContours(contours) {
+  // NOTE: y軸反転等で符号が逆なら >0/<0 を入れ替えてください
+  const outers = [];
+  const holes = [];
+  for (let i=0;i<contours.length;i++){
+  if (contours[i].area > 0) outers.push(i);
+  else holes.push(i);
+  }
+
+  const groups = outers.map(o => ({ outer:o, holes:[] }));
+
+  for (const h of holes) {
+  const pt = contours[h].pts[0];
+  let best = -1, bestArea = Infinity;
+  for (const o of outers) {
+    if (pointInPolygon(pt, contours[o].pts)) {
+      const a = Math.abs(contours[o].area);
+      if (a < bestArea) { bestArea = a; best = o; }
+    }
+  }
+  if (best !== -1) groups.find(g=>g.outer===best).holes.push(h);
+  // bestが無い穴は捨てずに"外形扱い"にしても良い(安全側)
+  }
+
+  return groups;
+}
+
+// Convert opentype.js path commands to contours (arrays of points)
+function pathToContours(path, flatness) {
+  const contours = [];
+  let current = [];
+  let pen = {x:0, y:0};
+  let start = null;
+
+  function closeCurrent() {
+    if (current.length >= 3) {
+      // remove redundant last == first
+      const first = current[0];
+      const last = current[current.length-1];
+      if (Math.hypot(first.x-last.x, first.y-last.y) < 1e-6) current.pop();
+      // filter tiny edges / duplicates
+      const cleaned = [];
+      for (const p of current) {
+        const q = cleaned[cleaned.length-1];
+        if (!q || Math.hypot(p.x-q.x, p.y-q.y) > 1e-6) cleaned.push(p);
+      }
+      if (cleaned.length >= 3) {
+        contours.push({ pts: cleaned, area: polygonArea(cleaned) });
+      }
+    }
+    current = [];
+    start = null;
+  }
+
+  for (const cmd of path.commands) {
+    if (cmd.type === 'M') {
+      closeCurrent();
+      pen = {x:cmd.x, y:cmd.y};
+      start = {x:cmd.x, y:cmd.y};
+      current.push({x:pen.x, y:pen.y});
+    } else if (cmd.type === 'L') {
+      pen = {x:cmd.x, y:cmd.y};
+      current.push({x:pen.x, y:pen.y});
+    } else if (cmd.type === 'Q') {
+      const p0 = {x:pen.x, y:pen.y};
+      const p1 = {x:cmd.x1, y:cmd.y1};
+      const p2 = {x:cmd.x, y:cmd.y};
+      flattenQuad(p0, p1, p2, flatness, current);
+      pen = {x:cmd.x, y:cmd.y};
+    } else if (cmd.type === 'C') {
+      const p0 = {x:pen.x, y:pen.y};
+      const p1 = {x:cmd.x1, y:cmd.y1};
+      const p2 = {x:cmd.x2, y:cmd.y2};
+      const p3 = {x:cmd.x, y:cmd.y};
+      flattenCubic(p0, p1, p2, p3, flatness, current);
+      pen = {x:cmd.x, y:cmd.y};
+    } else if (cmd.type === 'Z') {
+      if (start) current.push({x:start.x, y:start.y});
+      closeCurrent();
+    }
+  }
+  closeCurrent();
+  return contours;
+}
+
+function toScadNumber(n) {
+  // keep output smaller while stable
+  const s = (Math.round(n*1000)/1000).toString();
+  return s.includes('.') ? s : s + ".0";
+}
+
+function contoursToScadPolygon(contours, groups, offsetX=0, offsetY=0) {
+  // build per-group polygon with points+paths
+  const blocks = [];
+  for (const g of groups) {
+    const indices = [g.outer, ...g.holes];
+    const points = [];
+    const paths = [];
+    let base = 0;
+
+    for (const idx of indices) {
+      const pts = contours[idx].pts;
+      const pathIdx = [];
+      for (const p of pts) {
+        points.push([p.x + offsetX, p.y + offsetY]);
+        pathIdx.push(base++);
+      }
+      paths.push(pathIdx);
+    }
+
+    const ptsStr = points.map(p => `[${toScadNumber(p[0])}, ${toScadNumber(p[1])}]`).join(",\n    ");
+    const pathsStr = paths.map(path => `[${path.join(",")}]`).join(",\n    ");
+
+    blocks.push(
+`polygon(
+points = [
+${ptsStr}
+],
+paths = [
+${pathsStr}
+]
+);`);
+  }
+  return blocks;
+}
+
+// ---------- UI / main ----------
+const els = {
+  fontFile: document.getElementById('fontFile'),
+  text: document.getElementById('text'),
+  fontSize: document.getElementById('fontSize'),
+  baseline: document.getElementById('baseline'),
+  letterSpacing: document.getElementById('letterSpacing'),
+  flatness: document.getElementById('flatness'),
+  gen: document.getElementById('gen'),
+  out: document.getElementById('out'),
+  copy: document.getElementById('copy'),
+  preview: document.getElementById('preview'),
+};
+
+let loadedFont = null;
+
+const loadFont = (buf) => {
+  try {
+    loadedFont = opentype.parse(buf);
+  } catch (err) {
+    alert("フォントの読み込みに失敗しました: " + err);
+    loadedFont = null;
+  }
+};
+
+els.fontFile.addEventListener('change', async (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  const buf = await f.arrayBuffer();
+  loadFont(buf);
+  selfont.value = "select_file";
+});
+
+selfont.onchange = async () => {
+  const fn = selfont.value;
+  if (fn == "select_file") {
+    els.fontFile.click();
+    return;
+  }
+  const buf = await (await fetch(fn)).arrayBuffer();
+  loadFont(buf);
+};
+selfont.onchange();
+
+els.copy.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(els.out.value);
+    alert("コピーしました");
+  } catch {
+    alert("コピーできませんでした(ブラウザ権限など)");
+  }
+});
+
+function drawPreview(allGlyphContours) {
+  const canvas = els.preview;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // compute bounds
+  let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+  for (const item of allGlyphContours) {
+    for (const c of item.contours) {
+      for (const p of c.pts) {
+        minX = Math.min(minX, p.x + item.dx);
+        minY = Math.min(minY, p.y + item.dy);
+        maxX = Math.max(maxX, p.x + item.dx);
+        maxY = Math.max(maxY, p.y + item.dy);
+      }
+    }
+  }
+  if (!isFinite(minX)) return;
+
+  const pad = 20;
+  const w = maxX - minX;
+  const h = maxY - minY;
+  const sx = (canvas.width - pad * 2) / (w || 1);
+  const sy = (canvas.height - pad * 2) / (h || 1);
+  const s = Math.min(sx, sy);
+
+  // y up -> canvas y down
+  ctx.save();
+  ctx.translate(pad, canvas.height - pad);
+  //ctx.scale(s, -s);
+  ctx.scale(s, s);
+  ctx.translate(-minX, -maxY);
+
+  ctx.fillStyle = "#111";
+  ctx.globalAlpha = 0.9;
+
+  for (const item of allGlyphContours) {
+    // draw using even-odd to visualize holes
+    ctx.beginPath();
+    for (const c of item.contours) {
+      const pts = c.pts;
+      if (!pts.length) continue;
+      ctx.moveTo(pts[0].x + item.dx, pts[0].y + item.dy);
+      for (let i=1;i<pts.length;i++) {
+        ctx.lineTo(pts[i].x + item.dx, pts[i].y + item.dy);
+      }
+      ctx.closePath();
+    }
+    ctx.fill("evenodd");
+  }
+
+  ctx.restore();
+}
+
+els.gen.addEventListener('click', () => {
+  if (!loadedFont) {
+    alert("先にフォントファイル(TTF/OTF)を選んでください。");
+    return;
+  }
+  const text = els.text.value ?? "";
+  const fontSize = Number(els.fontSize.value || 20);
+  const baseline = Number(els.baseline.value || 0);
+  const spacing = Number(els.letterSpacing.value || 0);
+  const flatness0 = Number(els.flatness.value || 1.2);
+  const flatness = flatness0 * fontSize / 100;
+
+  // Build OpenType path manually for consistent glyph positioning
+  let x = 0;
+  const y = baseline;
+
+  const outBlocks = [];
+  const previewData = [];
+
+  outBlocks.push("// Generated by Text → OpenSCAD polygon(points,paths)");
+  outBlocks.push(`// text="${text}" size=${fontSize} flatness=${flatness}`);
+  outBlocks.push("module gentext() {");
+  outBlocks.push("union() {");
+
+  for (const ch of [...text]) {
+    const glyph = loadedFont.charToGlyph(ch);
+    // Skip missing glyphs (usually .notdef)
+    if (!glyph || glyph.unicode === undefined) {
+      x += fontSize * 0.5;
+      continue;
+    }
+
+    const path = glyph.getPath(x, y, fontSize);
+    //const contours = pathToContours(path, flatness);
+    const contours = chkunion.checked ? unionContours(pathToContours(path, flatness)) : pathToContours(path, flatness);
+
+    if (contours.length) {
+      const groups = groupContours(contours);
+
+      // Convert contours coordinates already include x,y from getPath, so offset=0
+      const polys = contoursToScadPolygon(contours, groups, 0, 0);
+
+      outBlocks.push(`  // glyph "${ch}"`);
+      outBlocks.push("  union() {");
+      for (const poly of polys) {
+        // indent
+        outBlocks.push("    " + poly.replace(/\n/g, "\n    "));
+      }
+      outBlocks.push("  }");
+      previewData.push({ contours, dx:0, dy:0 });
+    }
+
+    // advance
+    const adv = glyph.advanceWidth ? loadedFont.getAdvanceWidth(ch, fontSize) : fontSize;
+    x += adv + spacing;
+  }
+
+  outBlocks.push("}");
+  outBlocks.push("}");
+  outBlocks.push("");
+  const n = in_linear_extrude.value;
+  if (!isNaN(n)) {
+    outBlocks.push(`linear_extrude(${n}) gentext();`);
+  } else {
+    outBlocks.push("gentext();");
+  }
+  els.out.value = outBlocks.join("\n\n");
+
+  drawPreview(previewData);
+});
+</script>
+</body>
+</html>
