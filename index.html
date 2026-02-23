@@ -127,18 +127,96 @@ function unionContours(contours) {
   const cpr = new ClipperLib.Clipper();
   cpr.AddPaths(subj, ClipperLib.PolyType.ptSubject, true);
 
-  const solution = new ClipperLib.Paths();
+  const polyTree = new ClipperLib.PolyTree();
   cpr.Execute(
     ClipperLib.ClipType.ctUnion,
-    solution,
+    polyTree,
     ClipperLib.PolyFillType.pftNonZero,
     ClipperLib.PolyFillType.pftNonZero
   );
+
+  console.log(polyTree);
+
+  const solution = polyTreeToPaths(polyTree);
+  console.log(solution)
 
   return solution.map(path => ({
     pts: path.map(p => ({ x: p.X/1000, y: p.Y/1000 })),
     area: 1
   }));
+}
+/**
+ * Convert ClipperLib.PolyTree (result of Execute with PolyTree) into
+ * an array of OpenSCAD-ready polygons: { points: [[x,y],...], paths: [[i...],[i...],...] }
+ *
+ * - Each returned item corresponds to ONE outer contour and its direct holes.
+ * - "Islands" (outer contours inside holes) become separate returned items.
+ * - Coordinates are scaled down by `scale` (Clipper uses integer coords).
+ *
+ * Usage:
+ *   const polyTree = new ClipperLib.PolyTree();
+ *   clipper.Execute(ctUnion, polyTree, pftNonZero, pftNonZero);
+ *   const polys = polyTreeToPaths(polyTree, { scale: 1000 });
+ *   // OpenSCAD:
+ *   // union() { for each p: polygon(points=p.points, paths=p.paths); }
+ */
+function polyTreeToPaths(polyTree, { scale = 1 } = {}) {
+  const result = [];
+
+  // Clipper IntPoint[] -> [[x,y],...]
+  const ringToXY = (ring) => ring.map((p) => [p.X / scale, p.Y / scale]);
+
+  // Build OpenSCAD polygon arrays from rings (outer + holes)
+  const ringsToPolygon = (rings) => {
+    const points = [];
+    const paths = [];
+    let idx = 0;
+
+    for (const ring of rings) {
+      const path = [];
+      for (const [x, y] of ringToXY(ring)) {
+        points.push([x, y]);
+        path.push(idx++);
+      }
+      paths.push(path);
+    }
+    return { points, paths };
+  };
+
+  // Depth-first walk. For each outer node, emit {outer + direct hole children}.
+  function walk(node) {
+    const childs = node.Childs ? node.Childs() : node.Childs; // defensive
+    const count = node.ChildCount ? node.ChildCount() : (childs ? childs.length : 0);
+
+    for (let i = 0; i < count; i++) {
+      const child = childs[i];
+
+      // If this is an outer contour, gather its direct holes and emit a polygon.
+      if (!child.IsHole()) {
+        const rings = [child.Contour()];
+
+        const gChilds = child.Childs();
+        const gCount = child.ChildCount();
+
+        for (let j = 0; j < gCount; j++) {
+          const sub = gChilds[j];
+          if (sub.IsHole()) rings.push(sub.Contour());
+          // Note: islands (non-hole) under holes will be handled by recursion below.
+        }
+
+        // Only emit if there's a real contour
+        if (rings[0] && rings[0].length >= 3) {
+          result.push(ringsToPolygon(rings));
+        }
+      }
+
+      // Recurse to find islands (outer contours inside holes) etc.
+      walk(child);
+    }
+  }
+
+  walk(polyTree);
+  return result;
 }
 
 // ---------- Geometry helpers ----------
