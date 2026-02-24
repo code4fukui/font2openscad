@@ -82,6 +82,7 @@
 
     <div class="col">
       <h3>出力(OpenSCAD)</h3>
+      <div id="div_out"></div>
       <textarea id="out" spellcheck="false"></textarea>
       <div class="hint">
         使い方例:<br>
@@ -97,6 +98,7 @@
 <script type="module">
 import * as opentype from "https://code4fukui.github.io/opentype-es/opentype.js";
 import ClipperLib from "https://code4fukui.github.io/clipper-es/clipper.js";
+import { OpenSCAD } from "https://code4fukui.github.io/openscad2-url/OpenSCAD.js";
 
 const fonts = [
   "https://ichigojam.github.io/font/IchigoJam_font-Regular.otf",
@@ -155,7 +157,7 @@ function unionContours(contours) {
   }));
   */
   return solution.map(path => ({
-    pts: path.map(p => ({ x: p.X/1000, y: p.Y/1000 })),
+    pts: path.map(p => ({ x: p.X/1000, y: -p.Y/1000 })),
     area: 1
   }));
 }
@@ -579,9 +581,10 @@ function drawPreview(allGlyphContours) {
 
   // y up -> canvas y down
   ctx.save();
-  ctx.translate(pad, canvas.height - pad);
-  //ctx.scale(s, -s);
-  ctx.scale(s, s);
+  //ctx.translate(pad, canvas.height - pad);
+  ctx.translate(pad, pad);
+  ctx.scale(s, -s);
+  //ctx.scale(s, s);
   ctx.translate(-minX, -maxY);
 
   ctx.fillStyle = "#111";
@@ -671,7 +674,14 @@ els.gen.addEventListener('click', () => {
   } else {
     outBlocks.push("gentext();");
   }
-  els.out.value = outBlocks.join("\n\n");
+  const src = outBlocks.join("\n\n");
+  els.out.value = src;
+  
+  const a = document.createElement("a");
+  a.href = OpenSCAD.encodeToURL(src);
+  a.textContent = "open on OpenSCAD2";
+  div_out.innerHTML = "";
+  div_out.appendChild(a);
 
   drawPreview(previewData);
 });
