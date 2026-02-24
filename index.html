@@ -16,11 +16,11 @@
     .hint { font-size: 12px; color:#555; line-height: 1.4; }
     .controls { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .small { font-size: 12px; color:#666; }
-    canvas { width: 100%; aspect-ratio: 900/520; x-height: 260px; border:1px solid #eee; border-radius: 10px; background:#fafafa; }
+    canvas { width: 100%; aspect-ratio: 900/450; x-height: 260px; border:1px solid #eee; border-radius: 10px; background:#fafafa; }
   </style>
 </head>
 <body>
-  <h2>漢字文字列 → OpenSCAD polygon(points, paths)</h2>
+  <h2>Text → OpenSCAD polygon(points, paths)</h2>
   <p class="hint">
     1) TTF/OTFフォントを選ぶ(例:NotoSansJP-Regular.otf / ヒラギノなどを抽出したTTF)<br>
     2) 文字列とパラメータを入れて「生成」→ OpenSCADに貼る。<br>
@@ -31,8 +31,8 @@
     <div class="col">
       <h3>入力</h3>
 
-      <label>文字列(漢字OK)</label>
-      <input id="text" type="text" value="漢字文字列" />
+      <label>文字列</label>
+      <input id="text" type="text" value='PRINT"HI!"' />
 
       <label>フォント</label>
       <select id="selfont"></select>
@@ -77,7 +77,7 @@
       </div>
 
       <label>プレビュー</label>
-      <canvas id="preview" width="900" height="520"></canvas>
+      <canvas id="preview" width="900" height="450"></canvas>
     </div>
 
     <div class="col">
@@ -89,6 +89,9 @@
       </div>
     </div>
   </div>
+  <div>
+  <div><a href="https://github.com/code4fukuifgont2openscad/">src on GitHub</a></div>
+  </div>
 
 
 <script type="module">
@@ -96,15 +99,20 @@ import * as opentype from "https://code4fukui.github.io/opentype-es/opentype.js"
 import ClipperLib from "https://code4fukui.github.io/clipper-es/clipper.js";
 
 const fonts = [
-  "Noto_Sans_JP/static/NotoSansJP-Black.ttf",
-  "Noto_Sans_JP/static/NotoSansJP-ExtraBold.ttf",
-  "Noto_Sans_JP/static/NotoSansJP-Bold.ttf",
-  "Noto_Sans_JP/static/NotoSansJP-SemiBold.ttf",
-  "Noto_Sans_JP/static/NotoSansJP-Medium.ttf",
-  "Noto_Sans_JP/static/NotoSansJP-Regular.ttf",
-  "Noto_Sans_JP/static/NotoSansJP-Light.ttf",
-  "Noto_Sans_JP/static/NotoSansJP-ExtraLight.ttf",
-  "Noto_Sans_JP/static/NotoSansJP-Thin.ttf",
+  "https://ichigojam.github.io/font/IchigoJam_font-Regular.otf",
+  "https://ichigojam.github.io/font/IchigoJam_font_dot-Regular.otf",
+  "https://ichigojam.github.io/font/IchigoJam_font_round-Regular.otf",
+  /*
+  "font/Noto_Sans_JP/static/NotoSansJP-Black.ttf",
+  "font/Noto_Sans_JP/static/NotoSansJP-ExtraBold.ttf",
+  "font/Noto_Sans_JP/static/NotoSansJP-Bold.ttf",
+  "font/Noto_Sans_JP/static/NotoSansJP-SemiBold.ttf",
+  "font/Noto_Sans_JP/static/NotoSansJP-Medium.ttf",
+  "font/Noto_Sans_JP/static/NotoSansJP-Regular.ttf",
+  "font/Noto_Sans_JP/static/NotoSansJP-Light.ttf",
+  "font/Noto_Sans_JP/static/NotoSansJP-ExtraLight.ttf",
+  "font/Noto_Sans_JP/static/NotoSansJP-Thin.ttf",
+  */
 ];
 
 for (const font of fonts) {
@@ -140,28 +148,50 @@ function unionContours(contours) {
   const solution = polyTreeToPaths(polyTree);
   console.log(solution)
 
+  /*
+  return solution.map(path => ({
+    pts: path.map(p => ({ x: p.X/1000, y: p.Y/1000 })),
+    area: 1
+  }));
+  */
   return solution.map(path => ({
     pts: path.map(p => ({ x: p.X/1000, y: p.Y/1000 })),
     area: 1
   }));
 }
-/**
- * Convert ClipperLib.PolyTree (result of Execute with PolyTree) into
- * an array of OpenSCAD-ready polygons: { points: [[x,y],...], paths: [[i...],[i...],...] }
- *
- * - Each returned item corresponds to ONE outer contour and its direct holes.
- * - "Islands" (outer contours inside holes) become separate returned items.
- * - Coordinates are scaled down by `scale` (Clipper uses integer coords).
- *
- * Usage:
- *   const polyTree = new ClipperLib.PolyTree();
- *   clipper.Execute(ctUnion, polyTree, pftNonZero, pftNonZero);
- *   const polys = polyTreeToPaths(polyTree, { scale: 1000 });
- *   // OpenSCAD:
- *   // union() { for each p: polygon(points=p.points, paths=p.paths); }
- */
-function polyTreeToPaths(polyTree, { scale = 1 } = {}) {
-  const result = [];
+function polyTreeToPaths(polyTree) {
+  const paths = [];
+  console.log(polyTree);
+
+  const node = polyTree;
+
+  const childs = node.Childs ? node.Childs() : node.Childs; // defensive
+  const count = node.ChildCount ? node.ChildCount() : (childs ? childs.length : 0);
+
+  for (let i = 0; i < count; i++) {
+    const result = [];
+    const child = childs[i];
+    console.log(i, child, child.Contour());
+    const cc = child.Contour();
+    cc.map(i => result.push(i));
+    result.push(cc[0]);
+
+    const count2 = child.ChildCount();
+    if (count2) {
+      console.log("ch", count2)
+      const childs2 = child.Childs();
+      childs2.map(i => {
+        const cc = i.Contour(); //.reverse();
+        cc.map(j => result.push(j));
+        result.push(cc[0]);
+      });
+    }
+
+    paths.push(result);
+  }
+  return paths;
+}
+/*
 
   // Clipper IntPoint[] -> [[x,y],...]
   const ringToXY = (ring) => ring.map((p) => [p.X / scale, p.Y / scale]);
@@ -206,7 +236,7 @@ function polyTreeToPaths(polyTree, { scale = 1 } = {}) {
 
         // Only emit if there's a real contour
         if (rings[0] && rings[0].length >= 3) {
-          result.push(ringsToPolygon(rings));
+          ringsToPolygon(rings);
         }
       }
 
@@ -218,7 +248,7 @@ function polyTreeToPaths(polyTree, { scale = 1 } = {}) {
   walk(polyTree);
   return result;
 }
-
+*/
 // ---------- Geometry helpers ----------
 function distPointLine(p, a, b) {
   const vx = b.x - a.x, vy = b.y - a.y;
