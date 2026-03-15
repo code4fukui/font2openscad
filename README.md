@@ -1,6 +1,8 @@
 # font2openscad
 
-Convert text to OpenSCAD polygon(points,paths).
+> 日本語のREADMEはこちらです: [README.ja.md](README.ja.md)
+
+Convert text to OpenSCAD polygon(points, paths).
 
 ## Demo
 [Live demo](https://code4fukui.github.io/font2openscad/)
