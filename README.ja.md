@@ -1,6 +1,6 @@
 # font2openscad
 
-文字列をOpenSCADのポリゴン(点列、パス)に変換するツールです。TTF/OTFフォントを使用し、2D形状を生成できます。
+文字列をOpenSCADのポリゴンに変換するツールです。TTF/OTFフォントを使用して2D形状を生成できます。
 
 ## デモ
 https://code4fukui.github.io/font2openscad/

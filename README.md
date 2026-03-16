@@ -21,4 +21,4 @@ Convert text to OpenSCAD polygon(points, paths).
 5. Copy the output code from the textarea to use in your OpenSCAD project.
 
 ## License
-MIT License
+MIT License — see [LICENSE](LICENSE).
