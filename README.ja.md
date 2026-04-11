@@ -22,4 +22,13 @@ https://code4fukui.github.io/font2openscad/
 5. OpenSCADでポリゴンを3D化
 
 ## ライセンス
-MIT License
+このリポジトリのソースコードは [LICENSE](LICENSE) に記載の MIT License です。
+
+同梱している [`font/Noto_Sans_JP/`](font/Noto_Sans_JP/) 以下のフォントファイルは、ソースコードとは別に SIL Open Font License 1.1 で提供されています。
+
+- フォント名: Noto Sans JP
+- 著作権表示: Copyright 2014-2021 Adobe
+- ライセンス本文: [`font/Noto_Sans_JP/OFL.txt`](font/Noto_Sans_JP/OFL.txt)
+- 同梱README: [`font/Noto_Sans_JP/README.txt`](font/Noto_Sans_JP/README.txt)
+
+このリポジトリをフォント込みで再配布する場合は、上記の OFL ライセンス文書と著作権表示ファイルをフォントファイルとあわせて保持してください。

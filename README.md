@@ -21,4 +21,13 @@ Convert text to OpenSCAD polygon(points, paths).
 5. Copy the output code from the textarea to use in your OpenSCAD project.
 
 ## License
-MIT License — see [LICENSE](LICENSE).
+The source code in this repository is licensed under the MIT License — see [LICENSE](LICENSE).
+
+The bundled font files under [`font/Noto_Sans_JP/`](font/Noto_Sans_JP/) are licensed separately under the SIL Open Font License 1.1.
+
+- Font: Noto Sans JP
+- Copyright: Copyright 2014-2021 Adobe
+- License text: [`font/Noto_Sans_JP/OFL.txt`](font/Noto_Sans_JP/OFL.txt)
+- Upstream font README: [`font/Noto_Sans_JP/README.txt`](font/Noto_Sans_JP/README.txt)
+
+When redistributing this repository with the bundled fonts, keep the above OFL license text and attribution files together with the font files.
