@@ -144,54 +144,28 @@ function unionContours(contours) {
     ClipperLib.PolyFillType.pftNonZero,
     ClipperLib.PolyFillType.pftNonZero
   );
-
-  console.log(polyTree);
-
-  const solution = polyTreeToPaths(polyTree);
-  console.log(solution)
-
-  /*
-  return solution.map(path => ({
-    pts: path.map(p => ({ x: p.X/1000, y: p.Y/1000 })),
-    area: 1
-  }));
-  */
-  return solution.map(path => ({
-    pts: path.map(p => ({ x: p.X/1000, y: -p.Y/1000 })),
-    area: 1
-  }));
+  return polyTreeToContours(polyTree);
 }
-function polyTreeToPaths(polyTree) {
-  const paths = [];
-  console.log(polyTree);
+function polyTreeToContours(polyTree) {
+  const contours = [];
 
-  const node = polyTree;
+  function walk(node) {
+    const childs = node.Childs ? node.Childs() : node.Childs;
+    const count = node.ChildCount ? node.ChildCount() : (childs ? childs.length : 0);
 
-  const childs = node.Childs ? node.Childs() : node.Childs; // defensive
-  const count = node.ChildCount ? node.ChildCount() : (childs ? childs.length : 0);
-
-  for (let i = 0; i < count; i++) {
-    const result = [];
-    const child = childs[i];
-    console.log(i, child, child.Contour());
-    const cc = child.Contour();
-    cc.map(i => result.push(i));
-    result.push(cc[0]);
-
-    const count2 = child.ChildCount();
-    if (count2) {
-      console.log("ch", count2)
-      const childs2 = child.Childs();
-      childs2.map(i => {
-        const cc = i.Contour(); //.reverse();
-        cc.map(j => result.push(j));
-        result.push(cc[0]);
-      });
+    for (let i = 0; i < count; i++) {
+      const child = childs[i];
+      const contour = child.Contour ? child.Contour() : [];
+      if (contour && contour.length >= 3) {
+        const pts = contour.map(p => ({ x: p.X / 1000, y: -p.Y / 1000 }));
+        contours.push({ pts, area: polygonArea(pts) });
+      }
+      walk(child);
     }
-
-    paths.push(result);
   }
-  return paths;
+
+  walk(polyTree);
+  return contours;
 }
 /*
 
@@ -321,7 +295,6 @@ function pointInPolygon(pt, poly) {
 }
 
 // Group contours into "outers with holes" using containment
-/*
 function groupContours(contours) {
   // Determine containment relationships
   const parents = new Array(contours.length).fill(-1);
@@ -371,33 +344,6 @@ function groupContours(contours) {
       groups.push({ outer: i, holes: [] });
     }
   }
-  return groups;
-}
-*/
-function groupContours(contours) {
-  // NOTE: y軸反転等で符号が逆なら >0/<0 を入れ替えてください
-  const outers = [];
-  const holes = [];
-  for (let i=0;i<contours.length;i++){
-  if (contours[i].area > 0) outers.push(i);
-  else holes.push(i);
-  }
-
-  const groups = outers.map(o => ({ outer:o, holes:[] }));
-
-  for (const h of holes) {
-  const pt = contours[h].pts[0];
-  let best = -1, bestArea = Infinity;
-  for (const o of outers) {
-    if (pointInPolygon(pt, contours[o].pts)) {
-      const a = Math.abs(contours[o].area);
-      if (a < bestArea) { bestArea = a; best = o; }
-    }
-  }
-  if (best !== -1) groups.find(g=>g.outer===best).holes.push(h);
-  // bestが無い穴は捨てずに"外形扱い"にしても良い(安全側)
-  }
-
   return groups;
 }
 
